@@ -1,0 +1,140 @@
+---
+title: "The Job-a-tron 3000™"
+output: 
+  flexdashboard::flex_dashboard:
+    navbar:
+      - { title: "The ESCO framework", href:"https://ec.europa.eu/esco/portal/home", align: left}
+      - { title: "About this project", href: "https://rpubs.com/federicoandreis/nesta_assignment_2021", align: left }
+    orientation: columns
+    vertical_layout: fill
+    source_code: embed
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(tidyverse)
+library(pheatmap)   # to create nice heatmaps
+library(igraph)     # to visualise data as networks
+library(plotly)     # to create interactive visualisations
+library(shiny)      # for menus and selectors
+
+## read in data
+
+# load('D:/Dropbox/Nesta/Data Science Assignment 2021/distance.rds')
+# load('D:/Dropbox/Nesta/Data Science Assignment 2021/job_pairs.rds')
+# load('D:/Dropbox/Nesta/Data Science Assignment 2021/job_list_sample.rds')
+load('distance.rds')
+load('job_pairs.rds')
+load('job_list_sample.rds')
+
+## helper functions
+
+plot_neighbours <- function(from, threshold=.3, 
+                            which_distances=c(1,NA,NA,NA),
+                            ...) {
+  
+  tmp_data <- return_neighbours(from,threshold,
+                                which_distances)
+  
+  d1 <- data.frame(from=from, to=tmp_data$job_2)
+  vertices <- data.frame(name = unique(c(as.character(d1$from),
+                                         as.character(d1$to)))) 
+  
+  mygraph <- graph_from_data_frame(d1, vertices=vertices)
+  
+  vertex_labels <- c(paste0(from,' [',substr(tmp_data$isco_job_1[1],1,1),']'),
+                     paste0(tmp_data$job_2,' [',substr(tmp_data$isco_job_2,1,1),']'))
+  
+  plot(mygraph, vertex.label=vertex_labels, 
+       edge.arrow.size=0, vertex.size=3,
+       vertex.label.dist=2)
+  
+}
+
+return_neighbours <- function(from,threshold=.3,
+                              which_distances=c(1,NA,NA,NA)) {
+  
+  job_pairs %>% 
+    filter(job_1==from) %>% 
+    mutate(avg_distance=rowMeans(
+      cbind(
+        which_distances[1]*essential_to_essential,
+        which_distances[2]*essential_to_optional,
+        which_distances[3]*optional_to_essential,
+        which_distances[4]*optional_to_optional),
+      na.rm=TRUE)
+      ) %>% 
+    filter(avg_distance<threshold) %>% 
+    filter(!which_same)
+
+}
+```
+
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### What's out there?
+
+Let's take a look at the closest jobs! 
+
+```{r}
+renderPlot(
+  
+  plot_neighbours(from=input$current_job,
+                threshold=input$threshold,
+                which_distances = c(ifelse(grepl('w1',input$weights),1,NA),
+        ifelse(grepl('w2',input$weights),1,NA),
+        ifelse(grepl('w3',input$weights),1,NA),
+        ifelse(grepl('w4',input$weights),1,NA)))
+)
+```
+
+
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Tune your parameters!
+
+```{r}
+selectInput("current_job", label = "Your current job:",
+            choices = job_list_sample, selected = 42)
+
+checkboxGroupInput("weights", "Distance to use:",
+                     choiceNames=c("essential-to-essential",
+                                   "essential-to-optional",
+                                   "optional-to-essential",
+                                   "optional-to-essential"),
+                   choiceValues=c('w1','w2','w3','w4'),
+                   selected='w1')
+
+sliderInput("threshold", label = "Specify a distance threshold:",
+            value=round(quantile(job_pairs$essential_to_essential,.03),3),
+            min=round(
+              min(
+                job_pairs[job_pairs$essential_to_essential>0,
+                          c(6:9)],
+                na.rm=TRUE),
+              3),
+            max=round(
+              max(
+                job_pairs[job_pairs$essential_to_essential>0,
+                          c(6:9)],
+                    na.rm=TRUE),
+              3))
+
+```
+
+
+### Distribution of distances from other jobs
+
+```{r}
+renderPlot(
+job_pairs %>% 
+    filter(job_1==input$current_job&!which_same) %>% 
+    ggplot()+
+    geom_density(aes(essential_to_essential))+
+    geom_vline(aes(xintercept=quantile(essential_to_essential,input$threshold)),lty=2)+theme_bw()
+)
+```
+
